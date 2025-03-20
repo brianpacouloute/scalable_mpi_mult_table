@@ -31,7 +31,7 @@ int count_unique_elements(int N) {
     return unique_count;
 }
 
-int main() {
+int main(int arg_count, char *arg_values[]) {
     int N;
     printf("Enter the value of N: ");
     scanf("%d", &N);
