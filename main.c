@@ -65,11 +65,12 @@ int main(int arg_count, char *arg_values[]) {
     int start = rank * rows_per_proc + 1;
     int end = (rank == size - 1) ? N : start + rows_per_proc - 1;
 
-    int local_unique[MAX_ELEMENTS];
-    int local_count = 0;
+    // what we will go for is a local computationn of products then has each product to a process based on a value range
+    // then send products to their owner process
+    // each process can then dup it's own received values each process counts it unique products
+    // MPI_Reduce
+    // this would be faster than seperating everything into it's many processes and then checking for dupes then joining everything and checking for dupes again (uneffective)
 
-    // build local unique sets
-    
 
     printf("The number of unique elements in the multiplication table of size %d is %d\n", N, count_unique_elements(N));
     return 0;
