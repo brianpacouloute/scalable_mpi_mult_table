@@ -11,12 +11,11 @@
 module purge
 module load StdEnv/2023 gcc/12.3 openmpi/4.1.5
 
-array=(20000)
-for procs in {10..50..5}
+array=(10000)
+for procs in {10..50..1}
 do
   for N in "${array[@]}"
   do
-    srun -n $procs ./a.out $N  >> test.txt
-
+    srun -n $procs ./main.out $N  >> test.txt
   done
 done
