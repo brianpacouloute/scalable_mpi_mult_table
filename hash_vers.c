@@ -76,6 +76,9 @@ int main(int argc, char *argv[]) {
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &size);
 
+    //start time
+    float start_time = MPI_Wtime();
+
     if (argc < 2) {
         if (rank == 0) printf("Usage: %s N\n", argv[0]);
         MPI_Finalize();
@@ -122,7 +125,15 @@ int main(int argc, char *argv[]) {
 
         long long *global_values;
         int total_unique = extract_values(global_set, &global_values);
-        printf("Total unique elements in %dx%d multiplication table: %d\n", N, N, total_unique);
+
+        //end time
+        float end_time = MPI_Wtime();
+
+        // printf("Total unique elements in %dx%d multiplication table: %d\n", N, N, total_unique);
+
+        //procs, N, exe_time
+        printf("%d, %d, %f, %d\n", size, N, end_time - start_time, total_unique); 
+
         free(global_values);
         destroy_hashset(global_set);
     } else {
