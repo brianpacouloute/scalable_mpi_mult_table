@@ -1,76 +1,63 @@
-/*
-Winter 2025
 
-Contributors:
-    Brian Pacouloute,
-    Ethan Chernitzky,
-    Thomas De Sa,
-    Ammar Ogeil
-
-Overview:
-    Basically what we're doing here is giving each process a subset of rows if N = 10 and 4 processes process 0 might get 1-2 etc.
-    Each process computes the multiplication products in its rows. Now after this each process sends the product to the process that owns it.
-    To calculate who owns what product we use a modular operation:
-
-    owner = product % size;
-    ex:
-    product = 42; size = 4;
-    owner = 42 % 4  = 2
-
-    so 42 is sent to process 2
-    each process receives a set of owned numbers and now the counting is done in the processes
-    */
-
+#include <mpi.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <mpi.h>
-#include <stdbool.h>
-#include <string.h>
 
-// Constants
-#define DEFAULT_TABLE_SIZE 100
+#define HASH_TABLE_SIZE 20000003
 
-// Function to check if a number is already in the array
-bool isUnique(int *arr, int size, int num)
-{
-    for (int i = 0; i < size; i++)
-    {
-        if (arr[i] == num)
-            return false;
+typedef struct Node {
+    long long val;
+    struct Node* next;
+} Node;
+
+typedef struct HashSet {
+    Node** buckets;
+} HashSet;
+
+unsigned long safe_mod(long long x, int mod) {
+    return (x % mod + mod) % mod;
+}
+
+unsigned long hash(long long x) {
+    return (unsigned long)(x % HASH_TABLE_SIZE);
+}
+
+HashSet* create_set() {
+    HashSet* set = malloc(sizeof(HashSet));
+    set->buckets = calloc(HASH_TABLE_SIZE, sizeof(Node*));
+    return set;
+}
+
+int insert(HashSet* set, long long val) {
+    unsigned long h = hash(val);
+    Node* curr = set->buckets[h];
+    while (curr) {
+        if (curr->val == val) return 0;
+        curr = curr->next;
     }
-    return true;
+    Node* node = malloc(sizeof(Node));
+    node->val = val;
+    node->next = set->buckets[h];
+    set->buckets[h] = node;
+    return 1;
 }
 
-/*
-    function to record algorithm execution data and save it to a csv file
-
-    int p          - Number of processors
-    int N          - Size of multiplication table
-    float exe_time - time taken for algorithm to fully run
-*/
-void save_stats(int p, int N, float exe_time)
-{
-
-    // system("mkdir -p output");
-    // char *filename = "./output/full_matrix_stats.csv";
-
-    // FILE *file = fopen(filename, "a");
-    // if (file == NULL)
-    // {
-    //     perror("Unable to open file");
-    // }
-    // fprintf(file, "%d, %d, %f\n", p, N, exe_time); 
-
-    // fclose(file);
-
-    //echoing output to console for SLURM
-    printf("%d, %d, %f\n", p, N, exe_time); 
-    return; 
+void free_set(HashSet* set) {
+    for (int i = 0; i < HASH_TABLE_SIZE; i++) {
+        Node* curr = set->buckets[i];
+        while (curr) {
+            Node* tmp = curr;
+            curr = curr->next;
+            free(tmp);
+        }
+    }
+    free(set->buckets);
+    free(set);
 }
 
-int main(int argc, char *argv[])
-{
-    int rank, size;
+int main(int argc, char* argv[]) {
+    int rank, size, N;
+
     MPI_Init(&argc, &argv);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &size);
@@ -79,139 +66,97 @@ int main(int argc, char *argv[])
     double start_time, end_time;
     start_time = MPI_Wtime();
 
-    // change to command line table_size input if none given use constant
-    int table_size = 0;
-    if (argc != 2)
-    {
+    if (argc < 2) {
         if (rank == 0)
-            printf("Usage: %s <table_size> : Using default table size 1000\n", argv[0]);
-        table_size = DEFAULT_TABLE_SIZE;
-    }
-    else
-    {
-        table_size = atoi(argv[1]);
+            printf("Usage: %s N\n", argv[0]);
+        MPI_Finalize();
+        return 1;
     }
 
-    MPI_Bcast(&table_size, 1, MPI_INT, 0, MPI_COMM_WORLD);
+    N = atoi(argv[1]);
+    MPI_Bcast(&N, 1, MPI_INT, 0, MPI_COMM_WORLD);
 
-    int rowsPerProc = table_size / size;
-    int start = rank * rowsPerProc + 1;
-    int end = (rank == size - 1) ? table_size : start + rowsPerProc - 1;
+    int base = N / size;
+    int extra = N % size;
+    int start = rank * base + (rank < extra ? rank : extra) + 1;
+    int rows = base + (rank < extra ? 1 : 0);
+    int end = start + rows - 1;
 
-    // Allocate and prepare buffers for sending to each process
-    int **sendBuffers = malloc(size * sizeof(int *));
-    int *sendCounts = calloc(size, sizeof(int));
-    int *sendCapacities = malloc(size * sizeof(int));
-
-    for (int i = 0; i < size; i++)
-    {
-        sendCapacities[i] = 100;
-        sendBuffers[i] = malloc(sendCapacities[i] * sizeof(int));
-    }
-
-    for (int i = start; i <= end; i++)
-    {
-        for (int j = i; j <= table_size; j++)
-        {
-            int product = i * j;
-            int owner = product % size;
-            if (sendCounts[owner] == sendCapacities[owner])
-            {
-                sendCapacities[owner] *= 2;
-                sendBuffers[owner] = realloc(sendBuffers[owner], sendCapacities[owner] * sizeof(int));
-                if (!sendBuffers[owner])
-                {
-                    fprintf(stderr, "Realloc failed on process %d\n", rank);
-                    MPI_Abort(MPI_COMM_WORLD, 1);
-                }
-            }
-            sendBuffers[owner][sendCounts[owner]++] = product;
+    // Count how many products will go to each rank
+    int* send_counts = calloc(size, sizeof(int));
+    for (int i = start; i <= end; i++) {
+        for (int j = 1; j <= i; j++) {
+            long long prod = (long long)i * j;
+            int dest = safe_mod(prod, size);
+            send_counts[dest]++;
         }
     }
 
-    // Exchange send counts
-    int *recvCounts = malloc(size * sizeof(int));
-    MPI_Alltoall(sendCounts, 1, MPI_INT, recvCounts, 1, MPI_INT, MPI_COMM_WORLD);
-
-    // Calculate displacements
-    int *sendDispls = malloc(size * sizeof(int));
-    int *recvDispls = malloc(size * sizeof(int));
-    int totalSend = 0, totalRecv = 0;
-
-    for (int i = 0; i < size; i++)
-    {
-        sendDispls[i] = totalSend;
-        recvDispls[i] = totalRecv;
-        totalSend += sendCounts[i];
-        totalRecv += recvCounts[i];
+    // Compute send displacements and total send size
+    int* send_displs = calloc(size, sizeof(int));
+    int total_send = send_counts[0];
+    for (int i = 1; i < size; i++) {
+        send_displs[i] = send_displs[i - 1] + send_counts[i - 1];
+        total_send += send_counts[i];
     }
 
-    // Flatten send buffers
-    int *sendBuffer = malloc(totalSend * sizeof(int));
-    int pos = 0;
-    for (int i = 0; i < size; i++)
-    {
-        for (int j = i; j < sendCounts[i]; j++)
-        {
-            sendBuffer[pos++] = sendBuffers[i][j];
+    long long* send_buf = malloc(total_send * sizeof(long long));
+    int* send_offsets = calloc(size, sizeof(int));  // for filling send_buf
+
+    for (int i = start; i <= end; i++) {
+        for (int j = 1; j <= i; j++) {
+            long long prod = (long long)i * j;
+            int dest = safe_mod(prod, size);
+            int pos = send_displs[dest] + send_offsets[dest];
+            send_buf[pos] = prod;
+            send_offsets[dest]++;
         }
-        free(sendBuffers[i]);
     }
-    free(sendBuffers);
-    free(sendCapacities);
 
-    int *recvBuffer = malloc(totalRecv * sizeof(int));
+    // Exchange counts
+    int* recv_counts = calloc(size, sizeof(int));
+    MPI_Alltoall(send_counts, 1, MPI_INT, recv_counts, 1, MPI_INT, MPI_COMM_WORLD);
 
-    // All-to-all communication
-    MPI_Alltoallv(sendBuffer, sendCounts, sendDispls, MPI_INT,
-                  recvBuffer, recvCounts, recvDispls, MPI_INT,
-                  MPI_COMM_WORLD);
+    // Compute recv displacements and total receive size
+    int* recv_displs = calloc(size, sizeof(int));
+    int total_recv = recv_counts[0];
+    for (int i = 1; i < size; i++) {
+        recv_displs[i] = recv_displs[i - 1] + recv_counts[i - 1];
+        total_recv += recv_counts[i];
+    }
 
-    // Now it's safe to free sendCounts
-    free(sendCounts);
-    free(sendBuffer);
-    free(sendDispls);
-    free(recvDispls);
+    long long* recv_buf = malloc((total_recv > 0 ? total_recv : 1) * sizeof(long long));  // never NULL
+
+    // Alltoallv
+    MPI_Alltoallv(
+        send_buf, send_counts, send_displs, MPI_LONG_LONG,
+        recv_buf, recv_counts, recv_displs, MPI_LONG_LONG,
+        MPI_COMM_WORLD
+    );
 
     // Deduplicate
-    int *localUnique = malloc(100 * sizeof(int));
-    int localCount = 0, localCapacity = 100;
+    HashSet* set = create_set();
+    for (int i = 0; i < total_recv; i++)
+        insert(set, recv_buf[i]);
 
-    for (int i = 0; i < totalRecv; i++)
-    {
-        int product = recvBuffer[i];
-        if (isUnique(localUnique, localCount, product))
-        {
-            if (localCount == localCapacity)
-            {
-                localCapacity *= 2;
-                localUnique = realloc(localUnique, localCapacity * sizeof(int));
-                if (!localUnique)
-                {
-                    fprintf(stderr, "Realloc failed in dedup on process %d\n", rank);
-                    MPI_Abort(MPI_COMM_WORLD, 1);
-                }
-            }
-            localUnique[localCount++] = product;
+    int local_unique = 0;
+    for (int i = 0; i < HASH_TABLE_SIZE; i++) {
+        Node* curr = set->buckets[i];
+        while (curr) {
+            local_unique++;
+            curr = curr->next;
         }
     }
 
-    free(recvBuffer);
-
-    // Reduce total unique count
-    int globalCount;
-    MPI_Reduce(&localCount, &globalCount, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
-
-    // benchmarking
-    end_time = MPI_Wtime();
-
+    int global_unique = 0;
+    MPI_Reduce(&local_unique, &global_unique, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
     if (rank == 0)
-    {
-        // printf("Total unique elements in %dx%d multiplication table: %d\n", table_size, table_size, globalCount);
-    }
+        printf("Total unique elements in %dx%d multiplication table: %d\n", N, N, global_unique);
 
-    free(localUnique);
-    free(recvCounts);
+    // Cleanup
+    free(send_counts); free(send_displs); free(send_offsets);
+    free(recv_counts); free(recv_displs); free(send_buf); free(recv_buf);
+    free_set(set);
 
     MPI_Finalize();
 
