@@ -150,8 +150,12 @@ int main(int argc, char* argv[]) {
 
     int global_unique = 0;
     MPI_Reduce(&local_unique, &global_unique, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
+
+    //benchmarking
+    end_time = MPI_Wtime(); 
     if (rank == 0)
-        printf("Total unique elements in %dx%d multiplication table: %d\n", N, N, global_unique);
+        printf("%d, %d, %f, %d\n", size, N, end_time-start_time, global_unique); 
+        // printf("Total unique elements in %dx%d multiplication table: %d\n", N, N, global_unique);
 
     // Cleanup
     free(send_counts); free(send_displs); free(send_offsets);
@@ -159,11 +163,6 @@ int main(int argc, char* argv[]) {
     free_set(set);
 
     MPI_Finalize();
-
-    if (rank == 0)
-    {
-        save_stats(size, table_size, end_time-start_time);
-    }
 
     return 0;
 }

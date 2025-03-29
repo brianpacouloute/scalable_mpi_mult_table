@@ -11,8 +11,8 @@
 module purge
 module load StdEnv/2023 gcc/12.3 openmpi/4.1.5
 
-array=(10000)
-for procs in {10..50..1}
+array=(50000)
+for procs in {1..40..1}
 do
   for N in "${array[@]}"
   do
