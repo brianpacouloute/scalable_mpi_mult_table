@@ -59,7 +59,7 @@ mpicc main.c -o unique_counter.out
 pirun -np <num_processes> unique_counter.out <N>
 ```
 
-Replace <num_processes> with the number of MPI ranks you want to use, and <N> with the size of th emultiplicaiton table.
+Replace <num_processes> with the number of MPI ranks you want to use, and <N> with the size of the multiplicaiton table.
 
 ##
 
