@@ -1,7 +1,7 @@
 
 # Parallel Unique Product Counter using MPI
 
-This project implements a **fully parallel algorithm** using **MPI** to count the number of **unique products in an NxN multiplication table**, even for extremely large values of N (up to 100,000), where over **10 billion products** are evaluated in under **3 minutes**.
+This project implements a **fully parallel algorithm** using **MPI** to count the number of **unique products in an NxN multiplication table**, even for extremely large values of N (up to 100,000), where over **10 billion products** are evaluated in under **3 minutes** on 40 processors.
 
 The algorithm uses a **hash-based ownership strategy** and a **custom hash set implementation** to ensure perfect deduplication and workload balance across all processes.
 
@@ -51,3 +51,15 @@ Given an NxN multiplication table, this program calculates how many **distinct v
 
 ```bash
 mpicc main.c -o unique_counter.out
+```
+### Execution
+
+
+```bash
+pirun -np <num_processes> unique_counter.out <N>
+```
+
+Replace <num_processes> with the number of MPI ranks you want to use, and <N> with the size of th emultiplicaiton table.
+
+##
+
